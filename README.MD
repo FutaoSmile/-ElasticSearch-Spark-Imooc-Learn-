@@ -90,7 +90,27 @@ GET /cdp_user/_search
 ```
 * 短语查询：不分词
     * match-> match_phrase
+* 分词分析
+```http request
+# 分析
+GET /_analyze
+{
+  "text": " I am a pig",
+  "analyzer": "english"
+}
 
+GET /_analyze
+{
+  "text": " I am a pig",
+  "analyzer": "standard"
+}
+
+GET /_analyze
+{
+  "text": " I am a pig",
+  "analyzer": "ik_smart"
+}
+```
 
 
 * analysis分析过程：
@@ -144,3 +164,111 @@ GET /cdp_user/_search
       * 结构为: `network.host`:`transport.tcp.port`
   * `cluster.initial_master_nodes: ["127.0.0.1:9301","host2","host3"]`
       * 有资格竞选主节点的节点，可直接复制`discovery.seed_hosts`
+    
+### # 中文分词器
+> IK分词器
+* 插件位置 plugins
+* 安装插件 `bin/elasticsearch-plugins install https://github.com/medcl/elasticsearch/analysis-ik/dowload/v7.3.0/elassticsearch-analysis-ik-7.3.0.zip`
+* 原理
+    * 过程:
+        1. 字符过滤，过滤特殊符号外加量词，如 `的`。stopWord，通用词
+        2. 字符处理（基于词库，词典拆分）
+        3. 分词过滤
+  
+* 常用分词器
+```java
+    /**
+     * 中文IK分词器-智能分词-宁缺毋滥-最高效使用的词
+     */
+    String IK_SMART = "ik_smart";
+    /**
+     * 中文IK分词器-尽最大努力的分词
+     */
+    String IK_MAX_WORD = "ik_max_word";
+```
+* analyzer指定的是构建索引时的分词器
+* search_analyzer指定的是查询时使用的分词器
+* 最佳实践：在构建索引时使用`ik_max_word`,在查询时使用`ik_smart`。
+* 词库
+
+### # 索引构建
+* 全量索引构建
+* 增量索引构建
+
+* logstash-input-jdbc
+    * 数据源
+    * 数据目标
+    * 同步方式
+    
+* 安装插件: `logstash/bin/logstash-plugin install logstash-input-jdbc`
+  
+#### # 全量索引构建/增量索引构建
+* 增量： *查询DB中修改时间大于某个时间的数据进行索引构建*
+
+* 拷贝mysql-jdbc驱动
+* 创建文件 jdbc.conf，jdbc.sql
+* jdbc.conf:
+```json
+input {
+    jdbc {
+      #设置timezone
+      jdbc_default_timezone => "Asia/Shanghai"
+      # mysql 数据库链接,dianpingdb为数据库名
+      jdbc_connection_string => "jdbc:mysql://127.0.0.1:3306/dianpingdb"
+      # 用户名和密码
+      jdbc_user => "root"
+      jdbc_password => "root"
+      # 驱动
+      jdbc_driver_library => "/Users/hzllb/Desktop/devtool/logstash-7.3.0/bin/mysql/mysql-connector-java-5.1.34.jar"
+      # 驱动类名
+      jdbc_driver_class => "com.mysql.jdbc.Driver"
+      jdbc_paging_enabled => "true"
+      jdbc_page_size => "50000"
+      last_run_metadata_path => "/Users/hzllb/Desktop/devtool/logstash-7.3.0/bin/mysql/last_value_meta" 
+    # 执行的sql 文件路径+名称;
+      statement_filepath => "/Users/hzllb/Desktop/devtool/logstash-7.3.0/bin/mysql/jdbc.sql"
+      # 设置监听间隔  各字段含义（由左至右）分、时、天、月、年，全部为*默认含义为每分钟都更新
+      schedule => "* * * * *"
+    }
+}
+              
+output {
+    elasticsearch {
+      # ES的IP地址及端口
+        hosts => ["localhost:9200"]
+      # 索引名称
+        index => "shop"
+  	document_type => "_doc"
+      # 自增ID 需要关联的数据库中有有一个id字段，对应索引的id号
+        document_id => "%{id}"
+    }
+    stdout {
+     # JSON格式输出
+        codec => json_lines
+    }
+}
+```
+* jdbc.sql
+```sql
+select a.id,
+       a.name,
+       a.tags,
+       concat(a.latitude, ',', a.longitude) as location,
+       a.remark_score,
+       a.price_per_man,
+       a.category_id,
+       b.name                               as category_name,
+       a.seller_id,
+       c.remark_score                       as seller_remark_score,
+       c.disabled_flag                      as seller_disabled_flag
+from shop a
+         inner join category b on a.category_id = b.id
+         inner join seller c on c.id = a.seller_id
+where a.updated_at > :sql_last_value
+   or b.updated_at > :sql_last_value
+   or c.updated_at > :sql_last_value
+```
+* 执行： logstash -f mysql/jdbc.conf
+
+
+* ES中存储的其实是宽表，所以需要将mysql中的很多表的数据整合在一个对象，对于关联关系，ES中需要存储关联的整个对象

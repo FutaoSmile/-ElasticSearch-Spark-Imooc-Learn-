@@ -10,6 +10,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
+import org.springframework.data.elasticsearch.core.query.Criteria;
+import org.springframework.data.elasticsearch.core.query.CriteriaQuery;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -47,5 +49,7 @@ public class UserServiceImpl implements UserService, ApplicationRunner {
 //        System.out.println(elasticsearchRestTemplate.delete("id", elasticsearchRestTemplate.getIndexCoordinatesFor(UserEntity.class)));
         this.save2Es();
         System.out.println(elasticsearchOperations.get("1", UserEntity.class));
+
+//        elasticsearchOperations.search(new CriteriaQuery(new Criteria("").is("")), UserEntity.class)
     }
 }
